@@ -144,7 +144,7 @@ void publish_present_gesture(MQTT::Client<MQTTNetwork, Countdown>* client) {
 	MQTT::Message message;
 	char buff[100];
 	if (num_overthreshold >= 10) return ;
-	sprintf(buff, "present_angle: %f\n", overthreshold[num_overthreshold]);
+	sprintf(buff, "present_gesture: %f\n", overthreshold[num_overthreshold]);
 
 	message.qos = MQTT::QOS0;
 	message.retained = false;
