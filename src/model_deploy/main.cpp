@@ -36,7 +36,6 @@ bool gesture_mode = false;
 bool angle_mode = false;
 BufferedSerial pc(USBTX, USBRX);
 
-void gesture_RPC(Arguments *in, Reply *out);
 void angle_detect_RPC(Arguments *in, Reply *out);
 void gesture_detect_RPC(Arguments *in, Reply *out);
 void gesture_detect();
@@ -52,8 +51,6 @@ int confirm_shape();
 bool angle_check(int index);
 #define pi 3.1415926
 
-RPCFunction rpc1(&gesture_RPC, "1");				// /gesture_RPC/run
-RPCFunction rpc2(&angle_detect_RPC, "2");		// /angle_detect_RPC/run
 RPCFunction rpc3(&gesture_detect_RPC, "g");  // /g/run
 
 DigitalOut myled1(LED1);	// gesture_UI mode
@@ -73,6 +70,7 @@ bool shape = false;
 bool publish = false;
 bool selected = true;
 bool detect = false;
+int publish_count = 0;
 int idR[32] = {0};
 int indexR = 0;
 int angle_threshold = 30;
@@ -83,7 +81,7 @@ int16_t data_y[32] = {0};
 int16_t data_z[32] = {0};
 int16_t data_total[3] = {0};
 int16_t ref_data[3] = {0};
-int sequence[32] = {};
+int sequence[32] = {0};
 int number = 0;
 int gesture_id;
 
@@ -168,8 +166,9 @@ void gesture_detect_RPC(Arguments *in, Reply *out) {
   printf("detect = %d, gesture_mode = %d\n", detect, gesture_mode);
   t_gesture_detect.start(&gesture_detect);
   t_gesture_UI.start(&gesture_UI);
-};
+}
 void gesture_detect(){
+  printf("LED1 should be turn on!!!");
   myled1 = 1;
   myled3 = 1;
   ThisThread::sleep_for(3s);
@@ -179,7 +178,7 @@ void gesture_detect(){
   number = 0;
 
   while(1) {
-    if (!shape){
+    if (!shape){  // when TF model sense a gesture, the shape variable will be true
       BSP_ACCELERO_AccGetXYZ(data_total);
       if (number >= 32) number = number % 32;
       data_x[number] = data_total[0];
@@ -191,15 +190,21 @@ void gesture_detect(){
       for (int i=0; i<32; i++) {
         printf("data_x[%d] = %d, data_y[%d] = %d, data_z[%d] = %d\n", i, data_x[i], i, data_y[i], i, data_z[i]);
       }
-      ThisThread::sleep_for(1s);
-      int shape_trigger = confirm_shape();
+      
+      bool shape_trigger = confirm_shape();
       if (!shape_trigger) shape = false;
+      publish_count++;
+      if (publish_count == 10) {
+        publish = true;
+        publish_count = 0;
+      }
     }
     ThisThread::sleep_for(50ms);
   }
 
   return ;
-};
+}
+
 int confirm_shape() {
   // after confirm, the trigger will be false
   bool trigger = true;
@@ -218,6 +223,7 @@ int confirm_shape() {
   trigger = false;
   return trigger;
 }
+
 bool angle_check(int index){
   bool check = false; // not over the threshold angle
   int threshold_angle = 30;
@@ -238,11 +244,6 @@ bool angle_check(int index){
   }
   if (theta > threshold_angle) check = true;
   return check;
-}
-
-void gesture_RPC(Arguments *in, Reply *out){
-  gesture_mode = true;
-  t_gesture_UI.start(&gesture_UI);
 }
 
 void gesture_UI() {
@@ -356,56 +357,9 @@ void gesture_UI() {
   }
 }
 
-void angle_detect_RPC(Arguments *in, Reply *out) {
-  angle_mode = true;
-  t_angle_detect.start(&angle_detect);
-}
-
-void angle_detect() {
-  myled2 = 1;
-	double a = 0, b = 0, c = 0;
-	double theta = 0;
-  double cos = 0;
-	myled3 = 1;
-	int16_t ref_pDataXYZ[3] = {0};
-	int16_t pDataXYZ[3] = {0};
-	ThisThread::sleep_for(3s);
-	BSP_ACCELERO_AccGetXYZ(ref_pDataXYZ);
-	ThisThread::sleep_for(1s);
-	myled3 = 0;
-	while (angle_mode) {
-      BSP_ACCELERO_AccGetXYZ(pDataXYZ);
-      a = sqrt(pow(ref_pDataXYZ[0],2) + pow(ref_pDataXYZ[1],2) + pow(ref_pDataXYZ[2],2));
-      b = sqrt(pow(pDataXYZ[0],2) + pow(pDataXYZ[1],2) + pow(pDataXYZ[2],2));
-      c = sqrt(pow((pDataXYZ[0]-ref_pDataXYZ[0]),2) + pow((pDataXYZ[1]-ref_pDataXYZ[1]),2) + pow((pDataXYZ[2]-ref_pDataXYZ[2]),2));
-      
-      cos = (a*a+b*b-c*c) / (2*a*b);
-      theta = acos((pow(a,2) + pow(b,2) - pow(c,2)) / (2 * a * b)) * 180 / pi;
-      // printf("cos = %f, a = %f, b = %f, c = %f\n", cos, a, b, c);
-      printf("Angle: %f\n", theta);
-      printf("angle_threshold = %d\n", angle_threshold);
-      // printf("Accelerometer values: (%d, %d, %d)\n", pDataXYZ[0], pDataXYZ[1], pDataXYZ[2]);
-      
-      if (theta > angle_threshold) {
-        overthreshold[num_overthreshold] = theta;
-        num_overthreshold++;
-        if (num_overthreshold >= 10) {
-          publish = true;
-          printf("publish = %d", publish);
-          angle_mode = false;
-          myled2 = 0;
-        }
-      }
-      else {
-        num_overthreshold = 0;
-      }
-      ThisThread::sleep_for(50ms);
-	}
-	
-}
-
 int main() {
 	BSP_ACCELERO_Init();
+/*
   wifi = WiFiInterface::get_default_instance();
   if (!wifi) {
     printf("ERROR: No WiFiInterface found.\r\n");
@@ -448,7 +402,7 @@ int main() {
   if (client.subscribe(topic, MQTT::QOS0, messageArrived) != 0){
     printf("Fail to subscribe\r\n");
   }
-
+*/
   mqtt_thread.start(callback(&mqtt_queue, &EventQueue::dispatch_forever));
   mqtt_thread_present_angle.start(callback(&mqtt_queue_present_angle, &EventQueue::dispatch_forever));
   t_gesture_detect.start(callback(&queue, &EventQueue::dispatch_forever));
@@ -458,14 +412,14 @@ int main() {
 	FILE *devout = fdopen(&pc, "w");
 
 	while (1) {
-    button.rise(mqtt_queue.event(&publish_message, &client));
-		if (publish) {
-      ThisThread::sleep_for(1s);
-			for (num_overthreshold=0; num_overthreshold<10; num_overthreshold++) {
-				mqtt_queue_present_angle.call(&publish_present_angle, &client);
-				ThisThread::sleep_for(50ms);
-			}
- 		}
+    //button.rise(mqtt_queue.event(&publish_message, &client));
+		// if (publish) {
+    //   ThisThread::sleep_for(1s);
+		// 	for (num_overthreshold=0; num_overthreshold<10; num_overthreshold++) {
+		// 		mqtt_queue_present_angle.call(&publish_present_angle, &client);
+		// 		ThisThread::sleep_for(50ms);
+		// 	}
+ 		// }
 		memset(buf, 0, 256);      // clear buffer
 		for(int i=0; i<255; i++) {
 			char recv = fgetc(devin);
@@ -478,6 +432,7 @@ int main() {
 		RPC::call(buf, outbuf);
 		printf("%s\r\n", outbuf);
 	}
+/*
   int num = 0;
   while (num != 5) {
     client.yield(100);
@@ -501,7 +456,7 @@ int main() {
 
   mqttNetwork.disconnect();
   printf("Successfully closed!\n");
-
+*/
   return 0;
 }
 // Return the result of the last prediction
