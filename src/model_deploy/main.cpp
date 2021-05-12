@@ -38,6 +38,8 @@ BufferedSerial pc(USBTX, USBRX);
 
 void gesture_RPC(Arguments *in, Reply *out);
 void angle_detect_RPC(Arguments *in, Reply *out);
+void gesture_detect_RPC(Arguments *in, Reply *out);
+void gesture_detect();
 void gesture_UI();
 void angle_detect();
 int PredictGesture(float* output);
@@ -46,11 +48,14 @@ void messageArrived(MQTT::MessageData& md);
 void publish_message(MQTT::Client<MQTTNetwork, Countdown>* client);
 void close_mqtt();
 void publish_present_angle(MQTT::Client<MQTTNetwork, Countdown>* client);
-
+int confirm_shape();
+bool angle_check(int index);
 #define pi 3.1415926
 
 RPCFunction rpc1(&gesture_RPC, "1");				// /gesture_RPC/run
 RPCFunction rpc2(&angle_detect_RPC, "2");		// /angle_detect_RPC/run
+RPCFunction rpc3(&gesture_detect_RPC, "g");  // /g/run
+
 DigitalOut myled1(LED1);	// gesture_UI mode
 DigitalOut myled2(LED2);	// angle_detect mode
 DigitalOut myled3(LED3);	// initialize
@@ -58,17 +63,29 @@ InterruptIn button(USER_BUTTON);
 Thread mqtt_thread(osPriorityHigh);
 Thread t_angle_detect;
 Thread t_gesture_UI;
+Thread t_gesture_detect;
+
 Thread mqtt_thread_present_angle(osPriorityHigh);
 EventQueue mqtt_queue_present_angle;
 EventQueue mqtt_queue;
-
+EventQueue queue;
+bool shape = false;
 bool publish = false;
 bool selected = true;
+bool detect = false;
 int idR[32] = {0};
 int indexR = 0;
 int angle_threshold = 30;
 double overthreshold[10] = {0};
 int num_overthreshold = 0;
+int16_t data_x[32] = {0};
+int16_t data_y[32] = {0};
+int16_t data_z[32] = {0};
+int16_t data_total[3] = {0};
+int16_t ref_data[3] = {0};
+int sequence[32] = {};
+int number = 0;
+int gesture_id;
 
 void uLCD_print(){
 	selected = false;
@@ -145,6 +162,84 @@ void close_mqtt() {
   closed = true;
 }
 
+void gesture_detect_RPC(Arguments *in, Reply *out) {
+  detect = true;
+  gesture_mode = true;
+  printf("detect = %d, gesture_mode = %d\n", detect, gesture_mode);
+  t_gesture_detect.start(&gesture_detect);
+  t_gesture_UI.start(&gesture_UI);
+};
+void gesture_detect(){
+  myled1 = 1;
+  myled3 = 1;
+  ThisThread::sleep_for(3s);
+  BSP_ACCELERO_AccGetXYZ(ref_data);
+  ThisThread::sleep_for(1s);
+  myled3 = 0;
+  number = 0;
+
+  while(1) {
+    if (!shape){
+      BSP_ACCELERO_AccGetXYZ(data_total);
+      if (number >= 32) number = number % 32;
+      data_x[number] = data_total[0];
+      data_y[number] = data_total[1];
+      data_z[number] = data_total[2];
+      number++;
+    }
+    else {
+      for (int i=0; i<32; i++) {
+        printf("data_x[%d] = %d, data_y[%d] = %d, data_z[%d] = %d\n", i, data_x[i], i, data_y[i], i, data_z[i]);
+      }
+      ThisThread::sleep_for(1s);
+      int shape_trigger = confirm_shape();
+      if (!shape_trigger) shape = false;
+    }
+    ThisThread::sleep_for(50ms);
+  }
+
+  return ;
+};
+int confirm_shape() {
+  // after confirm, the trigger will be false
+  bool trigger = true;
+  int count = 0;
+  int i;
+  for (i=0; i<32; i++) {
+    sequence[i] = angle_check(i);
+    if(sequence[i]) count++;
+  }
+  if (count>=20) {
+    gesture_id = 0; // circle
+  }
+  else {
+    gesture_id = 1; // slope
+  }
+  trigger = false;
+  return trigger;
+}
+bool angle_check(int index){
+  bool check = false; // not over the threshold angle
+  int threshold_angle = 30;
+  double a, b, c, cos, theta;
+  if (index==0) {
+    a = sqrt(pow(ref_data[0],2) + pow(ref_data[1],2) + pow(ref_data[2],2));
+    b = sqrt(pow(data_x[0],2) + pow(data_y[0],2) + pow(data_z[0],2));
+    c = sqrt(pow((data_x[0]-ref_data[0]),2) + pow((data_y[0]-ref_data[1]),2) + pow((data_z[0]-ref_data[2]),2));
+    cos = (a*a+b*b-c*c) / (2*a*b);
+    theta = acos((pow(a,2) + pow(b,2) - pow(c,2)) / (2 * a * b)) * 180 / pi;
+  }
+  else {
+    a = sqrt(pow(data_x[index],2) + pow(data_y[index],2) + pow(data_z[index],2));
+    b = sqrt(pow(data_x[index-1],2) + pow(data_y[index-1],2) + pow(data_z[index-1],2));
+    c = sqrt(pow((data_x[index]-data_x[index-1]),2) + pow((data_y[index]-data_y[index-1]),2) + pow((data_z[index]-data_z[index-1]),2));
+    cos = (a*a+b*b-c*c) / (2*a*b);
+    theta = acos((pow(a,2) + pow(b,2) - pow(c,2)) / (2 * a * b)) * 180 / pi;
+  }
+  if (theta > threshold_angle) check = true;
+  return check;
+}
+
 void gesture_RPC(Arguments *in, Reply *out){
   gesture_mode = true;
   t_gesture_UI.start(&gesture_UI);
@@ -152,7 +247,7 @@ void gesture_RPC(Arguments *in, Reply *out){
 
 void gesture_UI() {
   // Whether we should clear the buffer next time we fetch data
-  myled1 = 1;
+  // myled1 = 1;
   bool should_clear_buffer = false;
   bool got_data = false;
 
@@ -251,14 +346,11 @@ void gesture_UI() {
 
       // Produce an output
       if (gesture_index < label_num) {
-        if (angle_threshold >= 180)
-          angle_threshold = 30;
-        else 
-          angle_threshold += 10;
-        
-        uLCD.cls();
-        uLCD.printf("angle_threshold = %d degree\n", angle_threshold);
-        //error_reporter->Report(config.output_message[gesture_index]);
+        // uLCD.cls();
+        // uLCD.printf("angle_threshold = %d degree\n", angle_threshold);
+        error_reporter->Report(config.output_message[gesture_index]);
+        shape = true;
+        printf("shape = %d\n", shape);
       }
     } 
   }
@@ -330,7 +422,7 @@ int main() {
   MQTT::Client<MQTTNetwork, Countdown> client(mqttNetwork);
 
   //TODO: revise host to your IP
-  const char* host = "192.168.43.2";
+  const char* host = "172.20.10.5";
   printf("Connecting to TCP network...\r\n");
 
   SocketAddress sockAddr;
@@ -359,6 +451,7 @@ int main() {
 
   mqtt_thread.start(callback(&mqtt_queue, &EventQueue::dispatch_forever));
   mqtt_thread_present_angle.start(callback(&mqtt_queue_present_angle, &EventQueue::dispatch_forever));
+  t_gesture_detect.start(callback(&queue, &EventQueue::dispatch_forever));
 	char buf[256], outbuf[256];
 
 	FILE *devin = fdopen(&pc, "r");
