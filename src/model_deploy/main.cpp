@@ -359,7 +359,7 @@ void gesture_UI() {
 
 int main() {
 	BSP_ACCELERO_Init();
-/*
+
   wifi = WiFiInterface::get_default_instance();
   if (!wifi) {
     printf("ERROR: No WiFiInterface found.\r\n");
@@ -402,7 +402,7 @@ int main() {
   if (client.subscribe(topic, MQTT::QOS0, messageArrived) != 0){
     printf("Fail to subscribe\r\n");
   }
-*/
+
   mqtt_thread.start(callback(&mqtt_queue, &EventQueue::dispatch_forever));
   mqtt_thread_present_angle.start(callback(&mqtt_queue_present_angle, &EventQueue::dispatch_forever));
   t_gesture_detect.start(callback(&queue, &EventQueue::dispatch_forever));
@@ -412,14 +412,14 @@ int main() {
 	FILE *devout = fdopen(&pc, "w");
 
 	while (1) {
-    //button.rise(mqtt_queue.event(&publish_message, &client));
-		// if (publish) {
-    //   ThisThread::sleep_for(1s);
-		// 	for (num_overthreshold=0; num_overthreshold<10; num_overthreshold++) {
-		// 		mqtt_queue_present_angle.call(&publish_present_angle, &client);
-		// 		ThisThread::sleep_for(50ms);
-		// 	}
- 		// }
+    button.rise(mqtt_queue.event(&publish_message, &client));
+		if (publish) {
+      ThisThread::sleep_for(1s);
+			for (num_overthreshold=0; num_overthreshold<10; num_overthreshold++) {
+				mqtt_queue_present_angle.call(&publish_present_angle, &client);
+				ThisThread::sleep_for(50ms);
+			}
+ 		}
 		memset(buf, 0, 256);      // clear buffer
 		for(int i=0; i<255; i++) {
 			char recv = fgetc(devin);
@@ -432,7 +432,7 @@ int main() {
 		RPC::call(buf, outbuf);
 		printf("%s\r\n", outbuf);
 	}
-/*
+
   int num = 0;
   while (num != 5) {
     client.yield(100);
@@ -456,7 +456,7 @@ int main() {
 
   mqttNetwork.disconnect();
   printf("Successfully closed!\n");
-*/
+
   return 0;
 }
 // Return the result of the last prediction
