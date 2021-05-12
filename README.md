@@ -23,3 +23,5 @@
 ##### (5) If shape is false, the gesture_detect function will keep calculate and restore the data.
 ##### (6) If shape is true, which means TF sense a gesture, then the gessture_detect function will call the confirm_shape function to determine which the gesture is.
 ##### (7) The method to determine the shape, I set the threshold angle 30 degree, if the angle between the two data is greater than threshold angle, count++. If count is greater than 20, which means the shape is circle, otherwise, the shape is slope.
+##### (8) When we have ten gesture data, the publish will be true and then publish the ten times event information.
+
