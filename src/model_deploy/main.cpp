@@ -46,7 +46,7 @@ void selected_mode();
 void messageArrived(MQTT::MessageData& md);
 void publish_message(MQTT::Client<MQTTNetwork, Countdown>* client);
 void close_mqtt();
-void publish_present_angle(MQTT::Client<MQTTNetwork, Countdown>* client);
+void publish_present_gesture(MQTT::Client<MQTTNetwork, Countdown>* client);
 int confirm_shape();
 bool angle_check(int index);
 #define pi 3.1415926
@@ -139,7 +139,7 @@ void publish_message(MQTT::Client<MQTTNetwork, Countdown>* client) {
 	printf("Puslish message: %s\r\n", buff);
 }
 
-void publish_present_angle(MQTT::Client<MQTTNetwork, Countdown>* client) {
+void publish_present_gesture(MQTT::Client<MQTTNetwork, Countdown>* client) {
 	message_num++;
 	MQTT::Message message;
 	char buff[100];
@@ -416,7 +416,7 @@ int main() {
 		if (publish) {
       ThisThread::sleep_for(1s);
 			for (num_overthreshold=0; num_overthreshold<10; num_overthreshold++) {
-				mqtt_queue_present_angle.call(&publish_present_angle, &client);
+				mqtt_queue_present_angle.call(&publish_present_gesture, &client);
 				ThisThread::sleep_for(50ms);
 			}
  		}
